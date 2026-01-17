@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TO_EMAIL="{{ to_email }}"
+HOSTNAME="$(hostname -s)"
+
+CPU_WARN_C={{ cpu_warn_c }}
+CPU_CRIT_C={{ cpu_crit_c }}
+
+WARN_COOLDOWN={{ warn_cooldown_seconds }}
+CRIT_COOLDOWN={{ crit_cooldown_seconds }}
+
+STATE_DIR="/var/tmp/temp-watch"
+mkdir -p "$STATE_DIR"
+
+now_epoch="$(date +%s)"
+
+cooldown_ok() {
+  local name="$1"
+  local cooldown="$2"
+  local f="$STATE_DIR/$name"
+  if [[ -f "$f" ]]; then
+    local last
+    last="$(cat "$f" || echo 0)"
+    if (( now_epoch - last < cooldown )); then
+      return 1
+    fi
+  fi
+  echo "$now_epoch" > "$f"
+  return 0
+}
+
+max_temp="$(sensors 2>/dev/null | grep -oP '\+\K[0-9]+(\.[0-9]+)?(?=°C)' | sort -nr | head -n1 || true)"
+
+if [[ -z "${max_temp}" ]]; then
+  logger -t temp-watch "No temps found from lm-sensors (sensors returned none)"
+  exit 0
+fi
+
+max_temp_int="${max_temp%.*}"
+
+body="Host: ${HOSTNAME}
+Max detected temp: ${max_temp}°C
+Thresholds: warn=${CPU_WARN_C}°C crit=${CPU_CRIT_C}°C
+
+Full sensors output:
+$(sensors 2>/dev/null)
+"
+
+if (( max_temp_int >= CPU_CRIT_C )); then
+  subject="[CRIT] ${HOSTNAME} temp ${max_temp}C"
+  if cooldown_ok "crit" "$CRIT_COOLDOWN"; then
+    echo "$body" | mail -s "$subject" "$TO_EMAIL"
+  fi
+elif (( max_temp_int >= CPU_WARN_C )); then
+  subject="[WARN] ${HOSTNAME} temp ${max_temp}C"
+  if cooldown_ok "warn" "$WARN_COOLDOWN"; then
+    echo "$body" | mail -s "$subject" "$TO_EMAIL"
+  fi
+fi

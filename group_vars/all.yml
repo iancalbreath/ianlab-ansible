@@ -1,0 +1,16 @@
+to_email: "server.alerts.ian@gmail.com"
+
+cpu_warn_c: 80
+cpu_crit_c: 90
+
+# SMTP
+smtp_host: "smtp.gmail.com"
+smtp_port: 587
+smtp_from: "server.alerts.ian@gmail.com"
+smtp_user: "server.alerts.ian@gmail.com"
+
+smtp_password_file: "/etc/msmtp-password"
+
+cron_every_minutes: 2
+warn_cooldown_seconds: 1800
+crit_cooldown_seconds: 900

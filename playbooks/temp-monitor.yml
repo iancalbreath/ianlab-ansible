@@ -1,0 +1,74 @@
+---
+- name: Install temp monitoring + email alerts
+  hosts: servers
+  become: true
+  vars_files:
+    - ../group_vars/all.yml
+
+  vars_prompt:
+    - name: smtp_password
+      prompt: "SMTP password / app password (stored on servers in root-only file)"
+      private: true
+
+  tasks:
+    - name: Install required packages
+      apt:
+        update_cache: true
+        name:
+          - lm-sensors
+          - msmtp
+          - msmtp-mta
+          - bsd-mailx
+        state: present
+
+    - name: Run sensors-detect (auto)
+      command: sensors-detect --auto
+      args:
+        creates: /etc/sensors3.conf
+      changed_when: false
+
+    - name: Ensure msmtp log exists
+      file:
+        path: /var/log/msmtp.log
+        state: touch
+        owner: root
+        group: adm
+        mode: "0664"
+
+    - name: Write SMTP password file (root-only)
+      copy:
+        dest: "{{ smtp_password_file }}"
+        content: "{{ smtp_password }}\n"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Deploy /etc/msmtprc
+      template:
+        src: ../templates/msmtprc.j2
+        dest: /etc/msmtprc
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Deploy temp-watch script
+      template:
+        src: ../templates/temp-watch.sh.j2
+        dest: /usr/local/sbin/temp-watch.sh
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy cron job
+      template:
+        src: ../templates/temp-watch.cron.j2
+        dest: /etc/cron.d/temp-watch
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Smoke test - run once (won't fail if no sensors found)
+      command: /usr/local/sbin/temp-watch.sh
+      register: smoketest
+      changed_when: false
+      failed_when: false

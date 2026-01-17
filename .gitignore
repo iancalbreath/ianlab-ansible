@@ -1,0 +1,13 @@
+# Secrets / local-only
+*.vault
+*.secret
+*.env
+inventory/*local*
+group_vars/*local*
+
+# Ansible
+*.retry
+
+# Editor/OS
+.DS_Store
+.vscode/

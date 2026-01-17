@@ -1,0 +1,12 @@
+defaults
+auth           on
+tls            on
+tls_starttls   on
+logfile        /var/log/msmtp.log
+
+account        default
+host           {{ smtp_host }}
+port           {{ smtp_port }}
+from           {{ smtp_from }}
+user           {{ smtp_user }}
+passwordeval   "cat {{ smtp_password_file }}"
