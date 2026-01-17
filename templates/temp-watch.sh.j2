@@ -7,6 +7,9 @@ HOSTNAME="$(hostname -s)"
 CPU_WARN_C={{ cpu_warn_c }}
 CPU_CRIT_C={{ cpu_crit_c }}
 
+NVME_WARN_C={{ nvme_warn_c }}
+NVME_CRIT_C={{ nvme_crit_c }}
+
 WARN_COOLDOWN={{ warn_cooldown_seconds }}
 CRIT_COOLDOWN={{ crit_cooldown_seconds }}
 
@@ -30,30 +33,60 @@ cooldown_ok() {
   return 0
 }
 
-max_temp="$(sensors 2>/dev/null | grep -oP '\+\K[0-9]+(\.[0-9]+)?(?=°C)' | sort -nr | head -n1 || true)"
+# ---- CPU: max of all lm-sensors temps ----
+cpu_max="$(sensors 2>/dev/null | grep -oP '\+\K[0-9]+(\.[0-9]+)?(?=°C)' | sort -nr | head -n1 || true)"
+cpu_max_int="${cpu_max%.*}"
 
-if [[ -z "${max_temp}" ]]; then
-  logger -t temp-watch "No temps found from lm-sensors (sensors returned none)"
-  exit 0
+# ---- NVMe: read all controller temps ----
+nvme_report=""
+nvme_max_int=0
+if command -v nvme >/dev/null 2>&1; then
+  for dev in /dev/nvme*n1; do
+    [[ -e "$dev" ]] || continue
+    # smart-log prints "temperature : XX C"
+    t="$(nvme smart-log "$dev" 2>/dev/null | awk -F: '/^temperature/ {gsub(/[^0-9]/,"",$2); print $2; exit}')"
+    if [[ -n "${t:-}" ]]; then
+      nvme_report+="${dev}: ${t}C"$'\n'
+      if (( t > nvme_max_int )); then nvme_max_int="$t"; fi
+    fi
+  done
 fi
 
-max_temp_int="${max_temp%.*}"
+# If CPU sensors missing, don't crash; still allow NVMe to trigger alerts.
+if [[ -z "${cpu_max:-}" ]]; then
+  cpu_max="N/A"
+  cpu_max_int=0
+fi
 
 body="Host: ${HOSTNAME}
-Max detected temp: ${max_temp}°C
-Thresholds: warn=${CPU_WARN_C}°C crit=${CPU_CRIT_C}°C
+
+CPU max: ${cpu_max}°C (warn=${CPU_WARN_C}°C crit=${CPU_CRIT_C}°C)
+NVMe max: ${nvme_max_int}°C (warn=${NVME_WARN_C}°C crit=${NVME_CRIT_C}°C)
+
+NVMe details:
+${nvme_report:-None detected}
 
 Full sensors output:
-$(sensors 2>/dev/null)
+$(sensors 2>/dev/null || true)
 "
 
-if (( max_temp_int >= CPU_CRIT_C )); then
-  subject="[CRIT] ${HOSTNAME} temp ${max_temp}C"
+# Decide severity based on worst offender (CPU or NVMe)
+crit_hit=0
+warn_hit=0
+
+if [[ "${cpu_max}" != "N/A" ]] && (( cpu_max_int >= CPU_CRIT_C )); then crit_hit=1; fi
+if [[ "${cpu_max}" != "N/A" ]] && (( cpu_max_int >= CPU_WARN_C )); then warn_hit=1; fi
+
+if (( nvme_max_int >= NVME_CRIT_C )); then crit_hit=1; fi
+if (( nvme_max_int >= NVME_WARN_C )); then warn_hit=1; fi
+
+if (( crit_hit == 1 )); then
+  subject="[CRIT] ${HOSTNAME} temp alert (CPU ${cpu_max}C / NVMe ${nvme_max_int}C)"
   if cooldown_ok "crit" "$CRIT_COOLDOWN"; then
     echo "$body" | mail -s "$subject" "$TO_EMAIL"
   fi
-elif (( max_temp_int >= CPU_WARN_C )); then
-  subject="[WARN] ${HOSTNAME} temp ${max_temp}C"
+elif (( warn_hit == 1 )); then
+  subject="[WARN] ${HOSTNAME} temp alert (CPU ${cpu_max}C / NVMe ${nvme_max_int}C)"
   if cooldown_ok "warn" "$WARN_COOLDOWN"; then
     echo "$body" | mail -s "$subject" "$TO_EMAIL"
   fi

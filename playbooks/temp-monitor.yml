@@ -19,6 +19,7 @@
           - msmtp
           - msmtp-mta
           - bsd-mailx
+          - nvme-cli
         state: present
 
     - name: Run sensors-detect (auto)

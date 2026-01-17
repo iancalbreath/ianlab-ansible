@@ -1,7 +1,10 @@
 to_email: "server.alerts.ian@gmail.com"
-
+#CPU
 cpu_warn_c: 80
 cpu_crit_c: 90
+#NVME
+nvme_warn_c: 65
+nvme_crit_c: 75
 
 # SMTP
 smtp_host: "smtp.gmail.com"
